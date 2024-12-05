@@ -68,6 +68,8 @@ executable repoconductor
     -- other-extensions:
 
     -- Other library packages from which modules are imported.
+    -- Win32 >=2.14.0.0,
+    -- unix >=2.7.3,
     build-depends: 
         base >=4.7 && <5,
         optparse-applicative >=0.14,
@@ -75,11 +77,11 @@ executable repoconductor
         process >=1.6,
         filepath >=1.4,
         async >=2.2.5,
-        unix >=2.7.3,
         containers >=0.6.7,
         mtl>=2.2.2,
         tomland>=0.1,
-        text>=2.0.2
+        text>=2.0.2,
+        Win32 >=2.14.0.0
 
     -- Directories containing source files.
     hs-source-dirs:   app
