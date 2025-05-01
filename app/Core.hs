@@ -112,6 +112,13 @@ process = do
               | "tag clear" == cmd -> do
                   updatedRepoMap <- liftIO $ clearTagsFiltered filteredRepos (repoMap state)
                   put state { repoMap = updatedRepoMap }
+          "lazygit" -> do
+              let runRepoCommand (_, dir) = do
+                      result <- try (callCommand $ "cd " ++ dir ++ " && " ++ (silenceOutput (execute state))) :: IO (Either SomeException ())
+                      case result of
+                          Right _ -> return ()
+                          Left  _ -> return ()
+              liftIO $ mapM_ runRepoCommand (zip [0..] (Map.keys filteredRepos))
           _ -> do
               let runRepoCommand (_, dir) = do
                       result <- try (callCommand $ "cd " ++ dir ++ " && " ++ (silenceOutput (execute state))) :: IO (Either SomeException ())
