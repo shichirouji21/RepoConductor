@@ -81,7 +81,7 @@ executable repoconductor
         mtl>=2.2.2,
         tomland>=0.1,
         text>=2.0.2,
-        Win32 >=2.14.0.0
+        unix >=2.7.3
 
     -- Directories containing source files.
     hs-source-dirs:   app
