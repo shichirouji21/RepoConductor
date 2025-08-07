@@ -241,7 +241,7 @@ process = do
           userActionFilter <- liftIO getSingleChar
           newFilters <- case userActionFilter of
                           'a' -> return (False, mempty, mempty, mempty)
-                          'd' -> return (True, fName, fBranch, fTag)
+                          'd' -> return (not fDirty, fName, fBranch, fTag)
                           'n' -> do
                             put state { mode = "fName" }
                             return (fDirty, fName, fBranch, fTag)
