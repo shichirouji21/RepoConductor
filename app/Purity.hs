@@ -1,10 +1,10 @@
 {-# LANGUAGE CPP #-}
 
-module Purity (getRepoName, filterMap, getPrint, getRepoColor, toLowerCase, parseTagLine, getMaxLength, safeInit) where
+module Purity (getRepoName, filterMap, getPrint, getRepoColor, toLowerCase, parseTagLine, getMaxLength, safeInit, bold, replaceFirst) where
 
 import qualified Data.Map as Map
 import System.FilePath (splitPath, dropTrailingPathSeparator)
-import Data.List (isInfixOf)
+import Data.List (isInfixOf, isPrefixOf)
 import Text.Printf (printf)
 import Data.Char (toLower)
 import Data.Map (Map)
@@ -75,3 +75,12 @@ getMaxLength repos = case Map.keys repos of
 safeInit :: String -> String
 safeInit [] = []
 safeInit xs = init xs
+
+bold :: String -> String
+bold s = "\x1b[1m" ++ s ++ "\x1b[0m"
+
+replaceFirst :: Eq a => [a] -> [a] -> [a] -> [a]
+replaceFirst old new str@(x:xs)
+  | old `isPrefixOf` str = new ++ drop (length old) str
+  | otherwise            = x : replaceFirst old new xs
+replaceFirst _ _ [] = []

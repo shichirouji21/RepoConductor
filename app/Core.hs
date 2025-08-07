@@ -19,7 +19,7 @@ import Options.Applicative
 import Tommy (readConfig)
 import Taggy (readTags, addTagFiltered, removeTagFiltered, clearTagsFiltered)
 import OS (getSingleChar, getConfigPath, silenceOutput)
-import Purity (filterMap, getPrint, getMaxLength, safeInit, getRepoName)
+import Purity (filterMap, getPrint, getMaxLength, safeInit, getRepoName, bold, replaceFirst)
 import Decor (spinner)
 import Static
 
@@ -237,7 +237,11 @@ process = do
       let (fDirty, fName, fBranch, fTag) = filters state
       case userAction of
         'f' -> do
-          liftIO $ putStrLn filterOptions 
+          --liftIO $ putStrLn filterOptions 
+          liftIO $
+            if fDirty
+              then printWithBold filterOptions "(D)irty"   -- highlight Dirty
+              else putStrLn        filterOptions           -- plain output
           userActionFilter <- liftIO getSingleChar
           newFilters <- case userActionFilter of
                           'a' -> return (False, mempty, mempty, mempty)
@@ -298,3 +302,9 @@ process = do
         'q' -> do
           liftIO $ putStrLn goodbye 
         _   -> process
+
+printWithBold :: String      -- ^ full text
+              -> String      -- ^ fragment to make bold
+              -> IO ()
+printWithBold fullText toBold =
+  putStrLn $ replaceFirst toBold (bold toBold) fullText
