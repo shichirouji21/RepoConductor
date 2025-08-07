@@ -1,5 +1,6 @@
-# Revision history for gitty
+## 0.1.1
+* "Dirty" filter works as a toggle from now on
 
-## 0.1.0.0 -- YYYY-mm-dd
+## 0.1.0
 
-* First version. Released on an unsuspecting world.
+* The very first release. Made in Haskell <3
