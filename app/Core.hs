@@ -9,16 +9,14 @@ import Data.List (isInfixOf, isPrefixOf)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (catMaybes, fromMaybe)
-import System.Directory (doesPathExist, listDirectory, makeAbsolute)
+import System.Directory (doesDirectoryExist, doesPathExist, getCurrentDirectory, listDirectory, makeAbsolute, pathIsSymbolicLink)
 import System.FilePath ((</>))
 import System.IO (hFlush, stdout)
 import System.Process (callCommand, readProcess)
 import Text.Printf (printf)
 import Text.Read (readMaybe)
-import Options.Applicative
-import Tommy (readConfig)
 import Taggy (readTags, addTagFiltered, removeTagFiltered, clearTagsFiltered)
-import OS (getSingleChar, getConfigPath, silenceOutput)
+import OS (getSingleChar, silenceOutput)
 import Purity (filterMap, getPrint, getMaxLength, safeInit, getRepoName)
 import Decor (spinner)
 import Static
@@ -35,25 +33,21 @@ type ConductorStateT = StateT ConductorState IO
 
 runConductor :: ConductorStateT ()
 runConductor = do
-  paths <- liftIO readConfig
-  fire paths
+  root <- liftIO getCurrentDirectory
+  fire root
 
-fire :: [FilePath] -> ConductorStateT ()
-fire [] = do
-  configPath <- liftIO $ getConfigPath ("repoconductor" </> "config.toml")
-  liftIO $ putStrLn "No Git repositories found. Add relevant paths to the config file:"
-  liftIO $ putStrLn configPath
-fire paths = do
-  initialize paths
-  process
+fire :: FilePath -> ConductorStateT ()
+fire root = do
+  gitFolders <- liftIO $ discoverGitRepos root
+  case gitFolders of
+    [] -> liftIO $ putStrLn $ "No Git repositories found under " ++ root
+    _  -> do
+      initialize gitFolders
+      process
 
 initialize :: [FilePath] -> ConductorStateT ()
-initialize paths = do
+initialize gitFolders = do
   state <- get
-  folders <- liftIO $ mapM (\path -> do
-    files <- listDirectory path
-    mapM (makeAbsolute . (path </>)) files) paths
-  gitFolders <- liftIO $ filterM (\dir -> doesPathExist (dir </> ".git")) (concat folders)
   tags <- liftIO $ readTags (map getRepoName gitFolders)
   let updatedRepoMap = Map.fromList
             [ (folder, ("", 0, 0, 0, tagString))
@@ -63,6 +57,31 @@ initialize paths = do
                   tagString = if null tagList then "" else concatMap (++ "|") (init tagList) ++ last tagList
             ]
   put state { repoMap = updatedRepoMap }
+
+discoverGitRepos :: FilePath -> IO [FilePath]
+discoverGitRepos root = makeAbsolute root >>= go
+  where
+    go dir = do
+      isRepo <- doesPathExist (dir </> ".git")
+      if isRepo
+        then return [dir]
+        else do
+          childDirs <- listChildDirectories dir
+          concat <$> mapM go childDirs
+
+    listChildDirectories dir = do
+      result <- try (listDirectory dir) :: IO (Either SomeException [FilePath])
+      case result of
+        Left _ -> return []
+        Right names -> filterM shouldSearch [dir </> name | name <- names, name /= ".git"]
+
+    shouldSearch path = do
+      isDir <- doesDirectoryExist path
+      if not isDir
+        then return False
+        else do
+          isLink <- pathIsSymbolicLink path
+          return (not isLink)
 
 process :: ConductorStateT ()
 process = do

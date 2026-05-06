@@ -1,6 +1,6 @@
 cabal-version:      3.0
 name:               repoconductor
-version:            0.1.1
+version:            0.2.0
 license:            BSD-2-Clause
 license-file:       LICENSE
 author:             shichirouji21
@@ -13,7 +13,7 @@ common warnings
 executable repoconductor 
     import:           warnings
     main-is:          Main.hs
-    other-modules:    Core, Purity, OS, Tommy, Taggy, Static, Decor
+    other-modules:    Core, Purity, OS, Taggy, Static, Decor
     -- Win32 >=2.14.0.0,
     -- unix >=2.7.3,
     build-depends: 
@@ -25,7 +25,6 @@ executable repoconductor
         async >=2.2.5,
         containers >=0.6.7,
         mtl>=2.2.2,
-        tomland>=0.1,
         text>=2.0.2,
         unix >=2.7.3
     hs-source-dirs:   app
