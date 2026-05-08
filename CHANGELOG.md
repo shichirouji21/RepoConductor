@@ -1,3 +1,8 @@
+## 1.3.0
+* Add a Nix flake at the repository root: `nix run github:shichirouji21/RepoConductor`, `nix profile install github:shichirouji21/RepoConductor`, `nix shell github:shichirouji21/RepoConductor`
+* Install bash, zsh, and fish completion files via the flake's `postInstall`
+* Provide a Haskell development shell via `nix develop` with `cabal-install`, `haskell-language-server`, and `git`
+
 ## 1.2.0
 * Add command-line flags: `--version`, `--path`, `--no-recurse`, `--jobs`, `--no-startup-refresh`, `--debug`
 * Ship shell completion scripts for bash, zsh, and fish in `completions/`

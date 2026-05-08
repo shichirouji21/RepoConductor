@@ -1,6 +1,6 @@
 # RepoConductor
 
-[![Version](https://img.shields.io/badge/version-1.2.0-blue)](https://github.com/shichirouji21/RepoConductor/releases/tag/v1.2.0)
+[![Version](https://img.shields.io/badge/version-1.3.0-blue)](https://github.com/shichirouji21/RepoConductor/releases/tag/v1.3.0)
 [![AUR](https://img.shields.io/badge/AUR-repoconductor--bin-1793d1)](https://aur.archlinux.org/packages/repoconductor-bin)
 [![License](https://img.shields.io/badge/license-BSD--2--Clause-green)](LICENSE)
 
@@ -9,7 +9,7 @@ RepoConductor is a terminal dashboard for managing many Git repositories at once
 Run it from a directory such as `~/repos`, and it recursively discovers Git repositories below the current working directory. From there, you can inspect status, filter repositories, run common Git actions, open `lazygit`, and organize repositories with local tags.
 
 ```text
-[RepoConductor] (v1.2.0)
+[RepoConductor] (v1.3.0)
 
 Name                    Branch          <-   ->   M    Job   Tag
 
@@ -84,6 +84,23 @@ chmod +x repoconductor
 mkdir -p ~/.local/bin
 mv repoconductor ~/.local/bin/
 ```
+
+### Nix
+
+RepoConductor ships a flake. With Nix installed and flakes enabled:
+
+```bash
+# Run without installing
+nix run github:shichirouji21/RepoConductor
+
+# Install into your user profile
+nix profile install github:shichirouji21/RepoConductor
+
+# Drop into an ephemeral shell that has it on PATH
+nix shell github:shichirouji21/RepoConductor
+```
+
+The flake installs the binary plus bash, zsh, and fish completion files. It works on `x86_64-linux`, `aarch64-linux`, `x86_64-darwin`, and `aarch64-darwin`.
 
 ### From Source
 
@@ -261,6 +278,12 @@ Clean build output:
 
 ```bash
 cabal clean
+```
+
+With Nix, drop into a development shell that pins `cabal-install`, `haskell-language-server`, and `git`:
+
+```bash
+nix develop
 ```
 
 ## Release Checklist
