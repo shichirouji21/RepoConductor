@@ -1,6 +1,6 @@
 # RepoConductor
 
-[![Version](https://img.shields.io/badge/version-1.1.0-blue)](https://github.com/shichirouji21/RepoConductor/releases/tag/v1.1.0)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue)](https://github.com/shichirouji21/RepoConductor/releases/tag/v1.2.0)
 [![AUR](https://img.shields.io/badge/AUR-repoconductor--bin-1793d1)](https://aur.archlinux.org/packages/repoconductor-bin)
 [![License](https://img.shields.io/badge/license-BSD--2--Clause-green)](LICENSE)
 
@@ -9,7 +9,7 @@ RepoConductor is a terminal dashboard for managing many Git repositories at once
 Run it from a directory such as `~/repos`, and it recursively discovers Git repositories below the current working directory. From there, you can inspect status, filter repositories, run common Git actions, open `lazygit`, and organize repositories with local tags.
 
 ```text
-[RepoConductor] (v1.1.0)
+[RepoConductor] (v1.2.0)
 
 Name                    Branch          <-   ->   M    Job   Tag
 
@@ -125,6 +125,41 @@ repoconductor
 RepoConductor scans recursively from the current directory. If `~/repos` contains `RepoConductor`, `my-api`, `sandbox/tool`, and `archive/project`, they are all included.
 
 When a repository itself is found, RepoConductor treats that directory as the repository root and does not keep walking inside it.
+
+## Command-Line Flags
+
+| Flag | Description |
+|---|---|
+| `-V`, `--version` | Show version and exit. |
+| `-h`, `--help` | Show built-in help and exit. |
+| `-p DIR`, `--path DIR` | Scan `DIR` instead of the current working directory. |
+| `--no-recurse` | Only treat immediate children of the path as candidates. |
+| `-j N`, `--jobs N` | Maximum concurrent git jobs. Default: `max(4, capabilities * 2)`. |
+| `--no-startup-refresh` | Skip the initial status refresh; rows stay empty until `U` is pressed. |
+| `--debug` | Verbose failure output (full captured stderr per failure). |
+
+Examples:
+
+```bash
+repoconductor --version
+repoconductor --path ~/work --no-recurse
+repoconductor --jobs 16 --debug
+```
+
+## Shell Completion
+
+RepoConductor ships completion for bash, zsh, and fish. The Arch package installs them automatically. For manual installation:
+
+```bash
+# bash
+sudo install -Dm644 completions/repoconductor.bash /usr/share/bash-completion/completions/repoconductor
+
+# zsh
+sudo install -Dm644 completions/_repoconductor /usr/share/zsh/site-functions/_repoconductor
+
+# fish
+sudo install -Dm644 completions/repoconductor.fish /usr/share/fish/vendor_completions.d/repoconductor.fish
+```
 
 ## Dashboard
 

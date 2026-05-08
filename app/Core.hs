@@ -23,13 +23,14 @@ import Taggy (readTags, addTagFiltered, removeTagFiltered, clearTagsFiltered)
 import OS (getSingleChar, silenceOutput)
 import Purity (filterMap, getPrint, getMaxLength, safeInit, getRepoName)
 import Static
-import Types (RepoFilters(..), RepoMap, RepoStatus(..), JobState(..))
+import Types (RepoFilters(..), RepoMap, RepoStatus(..), JobState(..), ConductorOptions(..))
 
 data ConductorState = ConductorState {
   repoMap      :: RepoMap,
   filters      :: RepoFilters,
   execute      :: String,
-  mode         :: String
+  mode         :: String,
+  options      :: ConductorOptions
 }
 
 type ConductorStateT = StateT ConductorState IO
@@ -44,16 +45,27 @@ data RepoCommand
 
 runConductor :: ConductorStateT ()
 runConductor = do
-  root <- liftIO getCurrentDirectory
+  conductorState <- get
+  let opts = options conductorState
+  root <- liftIO $ case optionPath opts of
+                     Just userPath -> return userPath
+                     Nothing       -> getCurrentDirectory
   fire root
 
 fire :: FilePath -> ConductorStateT ()
 fire root = do
-  gitFolders <- liftIO $ discoverGitRepos root
+  conductorState <- get
+  let opts = options conductorState
+  gitFolders <- liftIO $ discoverGitRepos (optionRecurse opts) root
   case gitFolders of
     [] -> liftIO $ putStrLn $ "No Git repositories found under " ++ root
     _  -> do
       initialize gitFolders
+      conductorStateAfterInit <- get
+      let initialExecute = if optionStartupRefresh (options conductorStateAfterInit)
+                              then "update"
+                              else mempty
+      put conductorStateAfterInit { execute = initialExecute }
       process
 
 initialize :: [FilePath] -> ConductorStateT ()
@@ -75,8 +87,8 @@ initialize gitFolders = do
             ]
   put conductorState { repoMap = updatedRepoMap }
 
-discoverGitRepos :: FilePath -> IO [FilePath]
-discoverGitRepos root = makeAbsolute root >>= go
+discoverGitRepos :: Bool -> FilePath -> IO [FilePath]
+discoverGitRepos recurse root = makeAbsolute root >>= go
   where
     go dir = do
       isRepo <- doesPathExist (dir </> ".git")
@@ -84,7 +96,11 @@ discoverGitRepos root = makeAbsolute root >>= go
         then return [dir]
         else do
           childDirs <- listChildDirectories dir
-          concat <$> mapM go childDirs
+          if recurse
+            then concat <$> mapM go childDirs
+            else filterM isImmediateGitRepo childDirs
+
+    isImmediateGitRepo path = doesPathExist (path </> ".git")
 
     listChildDirectories dir = do
       result <- try (listDirectory dir) :: IO (Either SomeException [FilePath])
@@ -165,9 +181,13 @@ runWithProgress
 runWithProgress label workingMap targets perRepoJob = do
   conductorState <- get
   let baselineMap = markPending (repoMap conductorState) targets
+      opts = options conductorState
   liveVar <- liftIO $ newTVarIO baselineMap
   put conductorState { repoMap = baselineMap }
-  limit <- liftIO jobLimit
+  defaultLimit <- liftIO jobLimit
+  let limit = case optionJobs opts of
+                Just userLimit | userLimit > 0 -> userLimit
+                _                              -> defaultLimit
 
   rendererHandle <- liftIO $ async (renderLoop label liveVar)
 
@@ -192,7 +212,7 @@ runWithProgress label workingMap targets perRepoJob = do
   updatedState <- get
   put updatedState { repoMap = clearedMap }
 
-  liftIO $ printFailures results
+  liftIO $ printFailures (optionDebug opts) results
 
 markPending :: RepoMap -> [FilePath] -> RepoMap
 markPending repos targets =
@@ -237,16 +257,19 @@ paintFrame label repos = do
   mapM_ putStrLn [getPrint maxNameLength key value | (key, value) <- Map.toList repos]
   hFlush stdout
 
-printFailures :: [(FilePath, Either String a)] -> IO ()
-printFailures results = do
+printFailures :: Bool -> [(FilePath, Either String a)] -> IO ()
+printFailures debug results = do
   let failures = [(key, message) | (key, Left message) <- results]
   unless (null failures) $ do
     putStrLn ""
     putStrLn (red ++ "Failures:" ++ reset)
-    mapM_ printOne failures
+    mapM_ (printOne debug) failures
   where
-    printOne (key, message) =
-      putStrLn (" - " ++ red ++ getRepoName key ++ reset ++ ": " ++ message)
+    printOne verbose (key, message) =
+      let displayed
+            | verbose   = message
+            | otherwise = take 200 message
+      in putStrLn (" - " ++ red ++ getRepoName key ++ reset ++ ": " ++ displayed)
 
 -- ---------------------------------------------------------------------------
 -- Status refresh

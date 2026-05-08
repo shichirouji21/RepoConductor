@@ -1,3 +1,12 @@
+## 1.2.0
+* Add command-line flags: `--version`, `--path`, `--no-recurse`, `--jobs`, `--no-startup-refresh`, `--debug`
+* Ship shell completion scripts for bash, zsh, and fish in `completions/`
+* Allow scanning a directory other than the current working directory via `--path`
+* Allow non-recursive discovery of immediate child repositories via `--no-recurse`
+* Allow overriding the concurrent job cap via `--jobs`
+* Allow skipping the initial status refresh via `--no-startup-refresh`
+* Print full captured failure output when `--debug` is set; otherwise truncate to 200 characters
+
 ## 1.1.0
 * Refresh repository status concurrently with a CPU-relative job cap
 * Run built-in actions (fetch, pull, switch, commit & push, manual) concurrently across filtered repositories

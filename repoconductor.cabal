@@ -1,6 +1,6 @@
 cabal-version:      3.0
 name:               repoconductor
-version:            1.1.0
+version:            1.2.0
 license:            BSD-2-Clause
 license-file:       LICENSE
 author:             shichirouji21
@@ -13,7 +13,8 @@ common warnings
 executable repoconductor 
     import:           warnings
     main-is:          Main.hs
-    other-modules:    Core, Purity, OS, Taggy, Static, Types, Concurrency
+    other-modules:    Core, Purity, OS, Taggy, Static, Types, Concurrency, Paths_repoconductor
+    autogen-modules:  Paths_repoconductor
     ghc-options:      -threaded -rtsopts "-with-rtsopts=-N"
     -- Win32 >=2.14.0.0,
     -- unix >=2.7.3,

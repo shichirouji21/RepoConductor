@@ -1,4 +1,4 @@
-module Types (RepoFilters(..), RepoMap, RepoStatus(..), JobState(..), jobLabel) where
+module Types (RepoFilters(..), RepoMap, RepoStatus(..), JobState(..), jobLabel, ConductorOptions(..), defaultOptions) where
 
 import Data.Map (Map)
 
@@ -34,3 +34,21 @@ data RepoFilters = RepoFilters {
   filterBranch :: String,
   filterTag    :: String
 } deriving (Eq, Show)
+
+data ConductorOptions = ConductorOptions {
+  optionPath             :: Maybe FilePath,
+  optionRecurse          :: Bool,
+  optionJobs             :: Maybe Int,
+  optionStartupRefresh   :: Bool,
+  optionDebug            :: Bool
+} deriving (Eq, Show)
+
+defaultOptions :: ConductorOptions
+defaultOptions = ConductorOptions {
+  optionPath           = Nothing,
+  optionRecurse        = True,
+  optionJobs           = Nothing,
+  optionStartupRefresh = True,
+  optionDebug          = False
+}
+
