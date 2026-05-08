@@ -4,32 +4,41 @@ module Core (runConductor, ConductorState(..), ConductorStateT) where
 
 import Control.Concurrent.Async (Async, async, cancel, mapConcurrently_)
 import Control.Exception (try, SomeException)
-import Control.Monad.State
-import Data.List (isInfixOf, isPrefixOf)
-import Data.Map (Map)
+import Control.Monad (filterM)
+import Control.Monad.State (StateT, get, liftIO, put)
+import Data.List (isInfixOf, isPrefixOf, stripPrefix)
 import qualified Data.Map as Map
-import Data.Maybe (catMaybes, fromMaybe)
 import System.Directory (doesDirectoryExist, doesPathExist, getCurrentDirectory, listDirectory, makeAbsolute, pathIsSymbolicLink)
+import System.Exit (ExitCode(..))
 import System.FilePath ((</>))
 import System.IO (hFlush, stdout)
-import System.Process (callCommand, readProcess)
+import System.Process (CreateProcess(..), StdStream(NoStream), createProcess, proc, readProcess, shell, waitForProcess)
 import Text.Printf (printf)
 import Text.Read (readMaybe)
 import Taggy (readTags, addTagFiltered, removeTagFiltered, clearTagsFiltered)
 import OS (getSingleChar, silenceOutput)
-import Purity (filterMap, getPrint, getMaxLength, safeInit, getRepoName)
+import Purity (filterMap, getPrint, getMaxLength, safeInit)
 import Decor (spinner)
 import Static
+import Types (RepoFilters(..), RepoMap, RepoStatus(..))
 
 data ConductorState = ConductorState {
-  repoMap      :: Map FilePath (String, Int, Int, Int, String),
-  filters      :: (Bool, String, String, String),
+  repoMap      :: RepoMap,
+  filters      :: RepoFilters,
   execute      :: String,
   mode         :: String,
   spinnerAsync :: Maybe (Async ())
 }
 
 type ConductorStateT = StateT ConductorState IO
+
+data RepoCommand
+  = GitFetch
+  | GitPull
+  | GitSwitch String
+  | GitCommitPush String
+  | Lazygit
+  | Manual String
 
 runConductor :: ConductorStateT ()
 runConductor = do
@@ -47,16 +56,21 @@ fire root = do
 
 initialize :: [FilePath] -> ConductorStateT ()
 initialize gitFolders = do
-  state <- get
-  tags <- liftIO $ readTags (map getRepoName gitFolders)
+  conductorState <- get
+  tags <- liftIO $ readTags gitFolders
   let updatedRepoMap = Map.fromList
-            [ (folder, ("", 0, 0, 0, tagString))
+            [ (folder, RepoStatus {
+                statusBranch = "",
+                statusPulls = 0,
+                statusPushes = 0,
+                statusModified = 0,
+                statusTags = tagString
+              })
             | folder <- gitFolders
-            , let repoName = getRepoName folder
-                  tagList = Map.findWithDefault [] repoName tags
+            , let tagList = Map.findWithDefault [] folder tags
                   tagString = if null tagList then "" else concatMap (++ "|") (init tagList) ++ last tagList
             ]
-  put state { repoMap = updatedRepoMap }
+  put conductorState { repoMap = updatedRepoMap }
 
 discoverGitRepos :: FilePath -> IO [FilePath]
 discoverGitRepos root = makeAbsolute root >>= go
@@ -83,6 +97,40 @@ discoverGitRepos root = makeAbsolute root >>= go
           isLink <- pathIsSymbolicLink path
           return (not isLink)
 
+parseRepoCommand :: String -> RepoCommand
+parseRepoCommand command
+  | command == "git fetch" = GitFetch
+  | command == "git pull" = GitPull
+  | "git switch " `isPrefixOf` command = GitSwitch (drop (length ("git switch " :: String)) command)
+  | "git commit-and-push " `isPrefixOf` command = GitCommitPush (drop (length ("git commit-and-push " :: String)) command)
+  | command == "lazygit" = Lazygit
+  | otherwise = Manual command
+
+runRepoCommand :: String -> FilePath -> IO ()
+runRepoCommand command dir =
+  case parseRepoCommand command of
+    GitFetch -> runGit ["fetch"]
+    GitPull -> runGit ["pull"]
+    GitSwitch branch -> runGit ["switch", branch]
+    GitCommitPush message -> do
+      runGit ["add", "."]
+      runGit ["commit", "-m", message]
+      runGit ["push"]
+    Lazygit -> runProcessChecked $ (proc "lazygit" []) { cwd = Just dir }
+    Manual manualCommand -> runProcessChecked $ (shell (silenceOutput manualCommand)) { cwd = Just dir }
+  where
+    runGit args = runProcessChecked $ (proc "git" args) { cwd = Just dir, std_out = NoStream, std_err = NoStream }
+
+    runProcessChecked processSpec = do
+      (_, _, _, handle) <- createProcess processSpec
+      exitCode <- waitForProcess handle
+      case exitCode of
+        ExitSuccess -> return ()
+        ExitFailure code -> ioError $ userError $ "Command failed with exit code " ++ show code
+
+isEnter :: Char -> Bool
+isEnter char = char == '\r' || char == '\n'
+
 process :: ConductorStateT ()
 process = do
   startSpinner
@@ -93,8 +141,8 @@ process = do
   displayColumnNames
   displayResults
   clearCommand
-  state <- get
-  getFeedback (mode state)
+  conductorState <- get
+  getFeedback (mode conductorState)
   where
     displayHeader :: ConductorStateT ()
     displayHeader = liftIO $ do
@@ -105,174 +153,205 @@ process = do
     startSpinner :: ConductorStateT ()
     startSpinner = do
       liftIO $ putStr clearScreen
-      state <- get
-      case spinnerAsync state of
+      conductorState <- get
+      case spinnerAsync conductorState of
         Just _ -> do
           return ()
         Nothing -> do
           asyncHandle <- liftIO $ async spinner
-          put state { spinnerAsync = Just asyncHandle }
+          put conductorState { spinnerAsync = Just asyncHandle }
     runCommand :: ConductorStateT ()
     runCommand = do
-      state <- get
-      let filteredRepos = filterMap (repoMap state) (filters state)
-      case (execute state) of
+      conductorState <- get
+      let filteredRepos = filterMap (repoMap conductorState) (filters conductorState)
+      case (execute conductorState) of
           ""       -> return ()
           "update" -> return ()
           cmd
               | "tag add " `isPrefixOf` cmd -> do
                   let tagName = drop (length ("tag add " :: String)) cmd
-                  updatedRepoMap <- liftIO $ addTagFiltered tagName filteredRepos (repoMap state)
-                  put state { repoMap = updatedRepoMap }
+                  updatedRepoMap <- liftIO $ addTagFiltered tagName filteredRepos (repoMap conductorState)
+                  put conductorState { repoMap = updatedRepoMap }
               | "tag remove " `isPrefixOf` cmd -> do
                   let tagName = drop (length ("tag remove " :: String)) cmd
-                  updatedRepoMap <- liftIO $ removeTagFiltered tagName filteredRepos (repoMap state)
-                  put state { repoMap = updatedRepoMap }
+                  updatedRepoMap <- liftIO $ removeTagFiltered tagName filteredRepos (repoMap conductorState)
+                  put conductorState { repoMap = updatedRepoMap }
               | "tag clear" == cmd -> do
-                  updatedRepoMap <- liftIO $ clearTagsFiltered filteredRepos (repoMap state)
-                  put state { repoMap = updatedRepoMap }
+                  updatedRepoMap <- liftIO $ clearTagsFiltered filteredRepos (repoMap conductorState)
+                  put conductorState { repoMap = updatedRepoMap }
           "lazygit" -> do
-              let runRepoCommand (_, dir) = do
-                      result <- try (callCommand $ "cd " ++ dir ++ " && " ++ (silenceOutput (execute state))) :: IO (Either SomeException ())
+              let runLazygit dir = do
+                      result <- try (runRepoCommand (execute conductorState) dir) :: IO (Either SomeException ())
                       case result of
                           Right _ -> return ()
                           Left  _ -> return ()
-              liftIO $ mapM_ runRepoCommand (zip [0..] (Map.keys filteredRepos))
+              liftIO $ mapM_ runLazygit (Map.keys filteredRepos)
           _ -> do
-              let runRepoCommand (_, dir) = do
-                      result <- try (callCommand $ "cd " ++ dir ++ " && " ++ (silenceOutput (execute state))) :: IO (Either SomeException ())
+              let runCommandForRepo dir = do
+                      result <- try (runRepoCommand (execute conductorState) dir) :: IO (Either SomeException ())
                       case result of
                           Right _ -> return ()
                           Left  _ -> return ()
-              liftIO $ mapConcurrently_ runRepoCommand (zip [0..] (Map.keys filteredRepos))
+              liftIO $ mapConcurrently_ runCommandForRepo (Map.keys filteredRepos)
     updateMap :: ConductorStateT () 
     updateMap = do
-      state <- get
+      conductorState <- get
       case () of
-        _ | not ("git" `isInfixOf` (execute state)) && (execute state) /= "update" -> return ()
+        _ | not ("git" `isInfixOf` (execute conductorState)) && (execute conductorState) /= "update" -> return ()
           | otherwise -> do
-              updatedRepoMap <- Map.traverseWithKey updateUnit (repoMap state)
-              put state { repoMap = updatedRepoMap }
+              updatedRepoMap <- Map.traverseWithKey updateUnit (repoMap conductorState)
+              put conductorState { repoMap = updatedRepoMap }
       where
-        updateUnit :: FilePath -> (String, Int, Int, Int, String) -> StateT ConductorState IO (String, Int, Int, Int, String)
-        updateUnit dir (branch, count1, count2, count3, tag) = do
-          state <- get
-          case (not (Map.member dir (filterMap (repoMap state) (filters state)))) of
-            True  -> return (branch, count1, count2, count3, tag)
+        updateUnit :: FilePath -> RepoStatus -> StateT ConductorState IO RepoStatus
+        updateUnit dir currentStatus = do
+          conductorState <- get
+          case (not (Map.member dir (filterMap (repoMap conductorState) (filters conductorState)))) of
+            True  -> return currentStatus
             False -> do
-              branch       <- liftIO $ try (readProcess "git" ["-C", dir, "rev-parse", "--abbrev-ref", "HEAD"]        mempty) :: StateT ConductorState IO (Either SomeException String)
-              pullResult   <- liftIO $ try (readProcess "git" ["-C", dir, "rev-list", "--count", "HEAD..@{upstream}"] mempty) :: StateT ConductorState IO (Either SomeException String) 
-              pushResult   <- liftIO $ try (readProcess "git" ["-C", dir, "rev-list", "--count", "@{upstream}..HEAD"] mempty) :: StateT ConductorState IO (Either SomeException String) 
-              statusResult <- liftIO $ try (readProcess "git" ["-C", dir, "status", "--porcelain"]                    mempty) :: StateT ConductorState IO (Either SomeException String)
-              return (
-                either (const "") init branch,
-                either (const  0) (fromMaybe 0 . readMaybe . init) pullResult,
-                either (const  0) (fromMaybe 0 . readMaybe . init) pushResult,
-                either (const  0) (length . lines) statusResult,
-                tag)
+              statusResult <- liftIO $ try (readRepoStatus dir (statusTags currentStatus)) :: StateT ConductorState IO (Either SomeException RepoStatus)
+              return $ either (const currentStatus) id statusResult
+        readRepoStatus :: FilePath -> String -> IO RepoStatus
+        readRepoStatus dir repoTags = do
+          statusOutput <- readProcess "git" ["-C", dir, "status", "--porcelain=v2", "--branch"] mempty
+          let statusLines = lines statusOutput
+              rawHead = headerValue "branch.head" statusLines
+              (ahead, behind) = parseAheadBehind (headerValue "branch.ab" statusLines)
+              modified = length [line | line <- statusLines, not (null line), not ("#" `isPrefixOf` line)]
+          displayHead <- readDisplayHeadName dir rawHead
+          return $ RepoStatus displayHead behind ahead modified repoTags
+        readDisplayHeadName :: FilePath -> String -> IO String
+        readDisplayHeadName dir rawHead
+          | rawHead == "(detached)" || rawHead == "HEAD" = readExactTagOrHead dir
+          | otherwise = return rawHead
+        readExactTagOrHead :: FilePath -> IO String
+        readExactTagOrHead dir = do
+          tagName <- try (readProcess "git" ["-C", dir, "describe", "--tags", "--exact-match", "HEAD"] mempty) :: IO (Either SomeException String)
+          return $ either (const "HEAD") tagNameOrHead tagName
+        headerValue :: String -> [String] -> String
+        headerValue headerName statusLines =
+          case [value | line <- statusLines, Just value <- [stripPrefix ("# " ++ headerName ++ " ") line]] of
+            value : _ -> value
+            []        -> ""
+        parseAheadBehind :: String -> (Int, Int)
+        parseAheadBehind value = (parseCount "+" value, parseCount "-" value)
+        parseCount :: String -> String -> Int
+        parseCount prefix value =
+          case [count | token <- words value, Just raw <- [stripPrefix prefix token], Just count <- [readMaybe raw]] of
+            count : _ -> count
+            []        -> 0
+        firstOutputLine :: String -> String
+        firstOutputLine output = case lines output of
+          []       -> ""
+          line : _ -> line
+        tagNameOrHead :: String -> String
+        tagNameOrHead output = case firstOutputLine output of
+          ""      -> "HEAD"
+          tagName -> tagName
     stopSpinner :: ConductorStateT ()
     stopSpinner = do
-      state <- get
-      case spinnerAsync state of
+      conductorState <- get
+      case spinnerAsync conductorState of
         Just asyncHandle -> do
           liftIO $ cancel asyncHandle
-          put state { spinnerAsync = Nothing }
+          put conductorState { spinnerAsync = Nothing }
         Nothing -> return ()
     displayColumnNames :: ConductorStateT ()
     displayColumnNames = do
-      state <- get
+      conductorState <- get
       liftIO $ do
         putStr "\r \r"
         hFlush stdout
-        putStrLn $ printf ("%s%-*s %-15s %-4s %-4s %-4s %-12s%s") (cursive :: String) (getMaxLength (repoMap state)) ("Name" :: String) ("Branch" :: String) ("<-" :: String) ("->" :: String) ("M" :: String) ("Tag" :: String) (reset :: String)
+        putStrLn $ printf ("%s%-*s %-15s %-4s %-4s %-4s %-12s%s") (cursive :: String) (getMaxLength (repoMap conductorState)) ("Name" :: String) ("Branch" :: String) ("<-" :: String) ("->" :: String) ("M" :: String) ("Tag" :: String) (reset :: String)
         putStrLn mempty
     displayResults :: ConductorStateT ()
     displayResults = do
-      state <- get
-      liftIO $ mapM_ putStrLn (catMaybes (map (\(key, value) -> getPrint (getMaxLength (repoMap state)) key value) $ Map.toList (filterMap (repoMap state) (filters state)))) 
+      conductorState <- get
+      let maxNameLength = getMaxLength (repoMap conductorState)
+          visibleRepos = filterMap (repoMap conductorState) (filters conductorState)
+      liftIO $ mapM_ putStrLn [getPrint maxNameLength key value | (key, value) <- Map.toList visibleRepos]
     clearCommand :: ConductorStateT ()
     clearCommand = do
-      state <- get
-      put state { execute = mempty } 
+      conductorState <- get
+      put conductorState { execute = mempty } 
     getFeedback :: String -> ConductorStateT ()
     getFeedback "fName" = do
-      state <- get
-      let (fDirty, fName, fBranch, fTag) = filters state
-      liftIO $ putStrLn ("\nName: " ++ fName)
+      conductorState <- get
+      let currentFilters = filters conductorState
+      liftIO $ putStrLn ("\nName: " ++ filterName currentFilters)
       userAction <- liftIO getSingleChar
       case userAction of
-        '\r' -> do
-          put state { mode = "normal" }
+        char | isEnter char -> do
+          put conductorState { mode = "normal" }
           process
         '\DEL' -> do
-          put state { filters = (fDirty, safeInit fName, fBranch, fTag) } 
+          put conductorState { filters = currentFilters { filterName = safeInit (filterName currentFilters) } } 
           process
         '\BS'  -> do
-          put state { filters = (fDirty, safeInit fName, fBranch, fTag) } 
+          put conductorState { filters = currentFilters { filterName = safeInit (filterName currentFilters) } } 
           process
         _ -> do
-          put state { filters = (fDirty, fName ++ [userAction], fBranch, fTag) }
+          put conductorState { filters = currentFilters { filterName = filterName currentFilters ++ [userAction] } }
           process
     getFeedback "fBranch" = do
-      state <- get
-      let (fDirty, fName, fBranch, fTag) = filters state
-      liftIO $ putStrLn ("\nBranch: " ++ fBranch)
+      conductorState <- get
+      let currentFilters = filters conductorState
+      liftIO $ putStrLn ("\nBranch: " ++ filterBranch currentFilters)
       userAction <- liftIO getSingleChar
       case userAction of
-        '\r' -> do
-          put state { mode = "normal" }
+        char | isEnter char -> do
+          put conductorState { mode = "normal" }
           process
         '\DEL' -> do
-          put state { filters = (fDirty, fName, safeInit fBranch, fTag) } 
+          put conductorState { filters = currentFilters { filterBranch = safeInit (filterBranch currentFilters) } } 
           process
         '\BS'  -> do
-          put state { filters = (fDirty, fName, safeInit fBranch, fTag) } 
+          put conductorState { filters = currentFilters { filterBranch = safeInit (filterBranch currentFilters) } } 
           process
         _ -> do
-          put state { filters = (fDirty, fName, fBranch ++ [userAction], fTag) }
+          put conductorState { filters = currentFilters { filterBranch = filterBranch currentFilters ++ [userAction] } }
           process
     getFeedback "fTag" = do
-      state <- get
-      let (fDirty, fName, fBranch, fTag) = filters state
-      liftIO $ putStrLn ("\nTag: " ++ fTag)
+      conductorState <- get
+      let currentFilters = filters conductorState
+      liftIO $ putStrLn ("\nTag: " ++ filterTag currentFilters)
       userAction <- liftIO getSingleChar
       case userAction of
-        '\r' -> do
-          put state { mode = "normal" }
+        char | isEnter char -> do
+          put conductorState { mode = "normal" }
           process
         '\DEL' -> do
-          put state { filters = (fDirty, fName, fBranch, safeInit fTag) } 
+          put conductorState { filters = currentFilters { filterTag = safeInit (filterTag currentFilters) } } 
           process
         '\BS'  -> do
-          put state { filters = (fDirty, fName, fBranch, safeInit fTag) } 
+          put conductorState { filters = currentFilters { filterTag = safeInit (filterTag currentFilters) } } 
           process
         _ -> do
-          put state { filters = (fDirty, fName, fBranch, fTag ++ [userAction]) }
+          put conductorState { filters = currentFilters { filterTag = filterTag currentFilters ++ [userAction] } }
           process
-    getFeedback mode = do
+    getFeedback _ = do
       liftIO $ putStrLn mainOptions 
       userAction <- liftIO getSingleChar
-      state <- get
-      let (fDirty, fName, fBranch, fTag) = filters state
+      conductorState <- get
+      let currentFilters = filters conductorState
       case userAction of
         'f' -> do
           liftIO $ putStrLn filterOptions 
           userActionFilter <- liftIO getSingleChar
           newFilters <- case userActionFilter of
-                          'a' -> return (False, mempty, mempty, mempty)
-                          'd' -> return (not fDirty, fName, fBranch, fTag)
+                          'a' -> return (RepoFilters False mempty mempty mempty)
+                          'd' -> return currentFilters { filterDirty = not (filterDirty currentFilters) }
                           'n' -> do
-                            put state { mode = "fName" }
-                            return (fDirty, fName, fBranch, fTag)
+                            put conductorState { mode = "fName" }
+                            return currentFilters
                           'b' -> do
-                            put state { mode = "fBranch" }
-                            return (fDirty, fName, fBranch, fTag)
+                            put conductorState { mode = "fBranch" }
+                            return currentFilters
                           't' -> do
-                            put state { mode = "fTag" }
-                            return (fDirty, fName, fBranch, fTag)
-                          _   -> return (fDirty, fName, fBranch, fTag)
-          state <- get
-          put state { filters = newFilters }
+                            put conductorState { mode = "fTag" }
+                            return currentFilters
+                          _   -> return currentFilters
+          updatedState <- get
+          put updatedState { filters = newFilters }
           process
         'a' -> do
           liftIO $ putStrLn actionOptions 
@@ -287,16 +366,16 @@ process = do
                       'c' -> do
                         liftIO $ putStrLn "Message: "
                         message <- liftIO getLine
-                        return ("git add . && git commit -m \"" ++ message ++ "\" && git push")
+                        return ("git commit-and-push " ++ message)
                       'l' -> return "lazygit"
                       'm' -> do
                         liftIO $ putStrLn "Command:"
                         liftIO getLine
                       _   -> return mempty
-          put state { execute = newCommand }
+          put conductorState { execute = newCommand }
           process
         'u' -> do
-          put state { execute = "update" }
+          put conductorState { execute = "update" }
           process
         't' -> do
           liftIO $ putStrLn "(A)dd, (R)emove, (C)lear"
@@ -312,7 +391,7 @@ process = do
                       return ("tag remove " ++ tagName)
                     'c' -> return ("tag clear")
                     _ -> return ""
-          put state { execute = tagCommand }
+          put conductorState { execute = tagCommand }
           process
         'q' -> do
           liftIO $ putStrLn goodbye 

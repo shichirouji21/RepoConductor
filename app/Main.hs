@@ -2,9 +2,10 @@
 
 module Main where
 
-import Control.Monad.State
+import Control.Monad.State (evalStateT)
 import Core (runConductor, ConductorState(..))
-import Options.Applicative
+import Options.Applicative (Parser, execParser, fullDesc, header, helper, info, progDesc)
+import Types (RepoFilters(..))
 
 data ConductorCommand = RunConductor
 
@@ -23,8 +24,13 @@ main = do
      <> header   "RepoConductor - A tool to manage multiple git repositories" )
     initialState = ConductorState {
       repoMap      = mempty,
-      filters      = (False, mempty, mempty, mempty),
-      execute      = "git fetch",
+      filters      = RepoFilters {
+        filterDirty = False,
+        filterName = mempty,
+        filterBranch = mempty,
+        filterTag = mempty
+      },
+      execute      = "update",
       mode         = "normal",
       spinnerAsync = Nothing
     }

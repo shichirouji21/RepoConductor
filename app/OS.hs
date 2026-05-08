@@ -2,37 +2,46 @@
 
 module OS (getSingleChar, silenceOutput, getConfigPath) where
 
-import System.FilePath ((</>))
-import System.Environment (getEnv)
+import Control.Exception (bracket)
 import Data.List (isPrefixOf)
-import System.Directory (getHomeDirectory)
+import System.FilePath ((</>))
+import System.IO (BufferMode(NoBuffering), hGetBuffering, hSetBuffering, stdin)
 
 #ifdef mingw32_HOST_OS
+import Control.Exception (bracket_)
 import Foreign.C.Types (CInt(..))
-import System.IO (hSetBuffering, BufferMode(NoBuffering), stdin)
+import System.Environment (getEnv)
+import System.IO (hFlush, stdout)
 foreign import ccall unsafe "conio.h getch" c_getch :: IO CInt
 
 getSingleChar :: IO Char
-getSingleChar = do
-  putStr "\ESC[?25l"
-  hSetBuffering stdin NoBuffering
-  c <- c_getch 
-  putStr "\ESC[?25h"
-  return (toEnum $ fromEnum c)
+getSingleChar = withNoBuffering $
+  bracket_ hideCursor showCursor $
+    toEnum . fromEnum <$> c_getch
+  where
+    hideCursor = putStr "\ESC[?25l" >> hFlush stdout
+    showCursor = putStr "\ESC[?25h" >> hFlush stdout
 #else
-import System.IO (hSetBuffering, BufferMode(NoBuffering), stdin)
-import System.Posix.Terminal (getTerminalAttributes, setTerminalAttributes, withoutMode, TerminalMode(..))
+import System.Directory (getHomeDirectory)
 import System.Posix.IO (stdInput)
-import System.Process (callCommand)
+import System.Posix.Terminal (TerminalMode(EnableEcho, ProcessInput), TerminalState(Immediately), getTerminalAttributes, setTerminalAttributes, withoutMode)
 
 getSingleChar :: IO Char
-getSingleChar = do
-  hSetBuffering stdin NoBuffering
-  callCommand "stty raw -echo"
-  char <- getChar
-  callCommand "stty -raw echo"
-  return char
+getSingleChar = withNoBuffering $
+  bracket
+    (getTerminalAttributes stdInput)
+    (\attrs -> setTerminalAttributes stdInput attrs Immediately)
+    (\attrs -> do
+      setTerminalAttributes stdInput (withoutMode (withoutMode attrs ProcessInput) EnableEcho) Immediately
+      getChar)
 #endif
+
+withNoBuffering :: IO a -> IO a
+withNoBuffering action =
+  bracket
+    (hGetBuffering stdin)
+    (hSetBuffering stdin)
+    (\_ -> hSetBuffering stdin NoBuffering >> action)
 
 silenceOutput :: String -> String
 #ifdef mingw32_HOST_OS

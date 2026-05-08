@@ -7,84 +7,98 @@ module Taggy (readTags, addTagFiltered, removeTagFiltered, clearTagsFiltered) wh
 import qualified Data.Map as Map
 import Control.Monad (unless)
 import Data.Map (Map)
+import Data.List (intercalate)
 import System.Directory (doesFileExist, createDirectoryIfMissing)
 import System.FilePath ((</>), takeDirectory)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import Data.List (intercalate)
+import Text.Read (readMaybe)
 import OS (getConfigPath)
 import Purity (getRepoName)
+import Types (RepoMap, RepoStatus(..))
 
-readTags :: [String] -> IO (Map String [String])
-readTags keys = do
+type TagMap = Map FilePath [String]
+
+readTags :: [FilePath] -> IO TagMap
+readTags repoPaths = do
     tags <- getTagsFilePath
     tagsExists <- doesFileExist tags
     unless tagsExists $ createTags tags
     fileLines <- if tagsExists then fmap T.lines (TIO.readFile tags) else pure []
-    let fileMap = Map.fromList $ map (parseLine . T.unpack) fileLines
-    let newMap = Map.fromList [(key, Map.findWithDefault [] key fileMap) | key <- keys]
-    writeTagsFile newMap
-    return newMap
+    let fileMap = migrateTags repoPaths $ Map.fromList $ map (parseLine . T.unpack) $ filter (not . T.null) fileLines
+    let updatedMap = foldr ensureRepoPath fileMap repoPaths
+    writeTagsFile updatedMap
+    return $ Map.fromList [(path, Map.findWithDefault [] path updatedMap) | path <- repoPaths]
 
-addTagFiltered :: String -> Map FilePath (String, Int, Int, Int, String) -> Map FilePath (String, Int, Int, Int, String) -> IO (Map FilePath (String, Int, Int, Int, String))
+addTagFiltered :: String -> RepoMap -> RepoMap -> IO RepoMap
 addTagFiltered tagName filteredRepos repoMap = do
-    tags <- readTags (map getRepoName (Map.keys repoMap))
+    tags <- readTags (Map.keys repoMap)
     let updatedTags = Map.unionWith (\oldVals newVals -> if tagName `elem` oldVals then oldVals else oldVals ++ newVals)
-                                     tags
-                                     (Map.map (const [tagName]) $ Map.mapKeys getRepoName filteredRepos)
+                                      tags
+                                      (Map.map (const [tagName]) filteredRepos)
     writeTagsFile updatedTags
-    let updatedRepoMap = Map.mapWithKey (\filePath (a, b, c, d, _) ->
-            let repoName = getRepoName filePath
-                tagString = joinTags (Map.findWithDefault [] repoName updatedTags)
-            in (a, b, c, d, tagString)) repoMap
-    return updatedRepoMap
+    return $ applyTagsToRepoMap updatedTags repoMap
 
-removeTagFiltered :: String -> Map FilePath (String, Int, Int, Int, String) -> Map FilePath (String, Int, Int, Int, String) -> IO (Map FilePath (String, Int, Int, Int, String))
+removeTagFiltered :: String -> RepoMap -> RepoMap -> IO RepoMap
 removeTagFiltered tagName filteredRepos repoMap = do
-    tags <- readTags (map getRepoName (Map.keys repoMap))
-    let updatedTags = Map.unionWith (\oldVals newVals -> filter (/= tagName) oldVals)
-                                     tags
-                                     (Map.map (const []) $ Map.mapKeys getRepoName filteredRepos)
+    tags <- readTags (Map.keys repoMap)
+    let updatedTags = foldr (Map.adjust (filter (/= tagName))) tags (Map.keys filteredRepos)
     writeTagsFile updatedTags
-    let updatedRepoMap = Map.mapWithKey (\filePath (a, b, c, d, _) ->
-            let repoName = getRepoName filePath
-                tagString = joinTags (Map.findWithDefault [] repoName updatedTags)
-            in (a, b, c, d, tagString)) repoMap
-    return updatedRepoMap
+    return $ applyTagsToRepoMap updatedTags repoMap
 
-clearTagsFiltered :: Map FilePath (String, Int, Int, Int, String) -> Map FilePath (String, Int, Int, Int, String) -> IO (Map FilePath (String, Int, Int, Int, String))
+clearTagsFiltered :: RepoMap -> RepoMap -> IO RepoMap
 clearTagsFiltered filteredRepos repoMap = do
-    tags <- readTags (map getRepoName (Map.keys repoMap))
-    let updatedTags = Map.unionWith (\_ _ -> []) tags (Map.map (const []) $ Map.mapKeys getRepoName filteredRepos)
+    tags <- readTags (Map.keys repoMap)
+    let updatedTags = foldr (Map.adjust (const [])) tags (Map.keys filteredRepos)
     writeTagsFile updatedTags
-    let updatedRepoMap = Map.mapWithKey (\filePath (a, b, c, d, tags) ->
-            let repoName = getRepoName filePath
-                tagString = joinTags (Map.findWithDefault [] repoName updatedTags)
-            in (a, b, c, d, tagString)) repoMap
-    return updatedRepoMap
+    return $ applyTagsToRepoMap updatedTags repoMap
 
 getTagsFilePath :: IO FilePath
 getTagsFilePath = getConfigPath ("repoconductor" </> "tags.shi")
 
-writeTagsFile :: Map String [String] -> IO ()
+writeTagsFile :: TagMap -> IO ()
 writeTagsFile tagMap = do
     tags <- getTagsFilePath
     let updatedLines = map (T.pack . formatLine) $ Map.toList tagMap
     TIO.writeFile tags (T.unlines updatedLines)
 
-parseLine :: String -> (String, [String])
+parseLine :: String -> (FilePath, [String])
 parseLine line =
+    case readMaybe line of
+        Just parsed -> parsed
+        Nothing     -> parseLegacyLine line
+
+parseLegacyLine :: String -> (FilePath, [String])
+parseLegacyLine line =
     let (key, rest) = span (/= '/') line
         values = case rest of
             '/' : vals -> filter (not . null) $ splitOn '/' vals
             _          -> []
     in (key, values)
 
-formatLine :: (String, [String]) -> String
-formatLine (key, values) =
-    if null values
-        then key ++ "/"
-        else key ++ "/" ++ intercalate "/" values
+formatLine :: (FilePath, [String]) -> String
+formatLine = show
+
+migrateTags :: [FilePath] -> TagMap -> TagMap
+migrateTags repoPaths tagMap = Map.union tagsWithoutMigratedKeys migratedTags
+  where
+    repoNameCounts = Map.fromListWith (+) [(getRepoName path, 1 :: Int) | path <- repoPaths]
+    migratedLegacyKeys = [name | (name, count) <- Map.toList repoNameCounts, count == 1, Map.member name tagMap]
+    tagsWithoutMigratedKeys = foldr Map.delete tagMap migratedLegacyKeys
+    migratedTags = Map.fromList
+        [ (path, values)
+        | path <- repoPaths
+        , not (Map.member path tagMap)
+        , Map.findWithDefault 0 (getRepoName path) repoNameCounts == 1
+        , Just values <- [Map.lookup (getRepoName path) tagMap]
+        ]
+
+ensureRepoPath :: FilePath -> TagMap -> TagMap
+ensureRepoPath path = Map.insertWith (\_ existing -> existing) path []
+
+applyTagsToRepoMap :: TagMap -> RepoMap -> RepoMap
+applyTagsToRepoMap tagMap = Map.mapWithKey (\filePath status ->
+    status { statusTags = joinTags (Map.findWithDefault [] filePath tagMap) })
 
 splitOn :: Eq a => a -> [a] -> [[a]]
 splitOn delimiter = foldr (\c acc -> if c == delimiter then [] : acc else (c : head acc) : tail acc) [[]]
