@@ -1,3 +1,10 @@
+## 1.1.0
+* Refresh repository status concurrently with a CPU-relative job cap
+* Run built-in actions (fetch, pull, switch, commit & push, manual) concurrently across filtered repositories
+* Show per-repo job state in a dedicated `Job` column (`wait`, `run`, `ok`, `err`) with a live-updating dashboard
+* Print captured failure output for each failed repository after a run completes
+* Build the executable threaded with `-N` so concurrency uses available CPU cores
+
 ## 1.0.0
 * Improve startup behavior by refreshing local status without fetching from remotes
 * Restore terminal state safely during single-key input

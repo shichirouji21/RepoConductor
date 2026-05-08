@@ -1,6 +1,6 @@
 # RepoConductor
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/shichirouji21/RepoConductor/releases/tag/v1.0.0)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue)](https://github.com/shichirouji21/RepoConductor/releases/tag/v1.1.0)
 [![AUR](https://img.shields.io/badge/AUR-repoconductor--bin-1793d1)](https://aur.archlinux.org/packages/repoconductor-bin)
 [![License](https://img.shields.io/badge/license-BSD--2--Clause-green)](LICENSE)
 
@@ -9,13 +9,13 @@ RepoConductor is a terminal dashboard for managing many Git repositories at once
 Run it from a directory such as `~/repos`, and it recursively discovers Git repositories below the current working directory. From there, you can inspect status, filter repositories, run common Git actions, open `lazygit`, and organize repositories with local tags.
 
 ```text
-[RepoConductor] (v1.0.0)
+[RepoConductor] (v1.1.0)
 
-Name                    Branch          <-   ->   M    Tag
+Name                    Branch          <-   ->   M    Job   Tag
 
-RepoConductor           master          ok
-my-service              feature/auth              2    work|api
-old-release             v1.2.0          ok
+RepoConductor           master          ok                ok
+my-service              feature/auth              2        run    work|api
+old-release             v1.2.0          ok                ok
 
 (F)ilter, (A)ction, (U)pdate, (T)ag, (Q)uit
 ```
@@ -45,9 +45,12 @@ Which work repos need attention today?
 |---|---|
 | Recursive discovery | Finds Git repositories under the current working directory. No repository path config is required. |
 | Multi-repo status | Shows branch or checked-out tag, behind count, ahead count, and modified file count. |
+| Concurrent operations | Refreshes status and runs built-in actions concurrently across filtered repositories with a CPU-relative job cap. |
+| Live progress | A `Job` column shows per-repo state (`wait`, `run`, `ok`, `err`) and the dashboard redraws while work is in flight. |
 | Fast refresh | Uses `git status --porcelain=v2 --branch` for compact status collection. |
 | Filters | Filter by dirty state, repository name, branch, or RepoConductor tag. |
 | Actions | Run `fetch`, `pull`, `switch`, commit and push, `lazygit`, or a manual command across filtered repositories. |
+| Failure reporting | Captures stderr from failed Git actions and prints it after the run completes. |
 | Tags | Add, remove, and clear local tags for groups of repositories. |
 | Safer built-ins | Built-in Git actions use argument-list process execution instead of shell string interpolation. |
 | Terminal-safe input | Terminal mode is restored even if input handling is interrupted. |
@@ -132,6 +135,7 @@ When a repository itself is found, RepoConductor treats that directory as the re
 | `<-` | Commits behind upstream. |
 | `->` | Commits ahead of upstream. |
 | `M` | Modified, added, deleted, or otherwise changed files. |
+| `Job` | Per-repo state of the most recent operation: `wait` (queued), `run` (in progress), `ok` (succeeded), `err` (failed). Empty when idle. |
 | `Tag` | Local RepoConductor tags assigned to the repository. |
 
 If a repository has a tag checked out, RepoConductor shows the tag name instead of plain `HEAD`.

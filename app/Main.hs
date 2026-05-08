@@ -31,6 +31,5 @@ main = do
         filterTag = mempty
       },
       execute      = "update",
-      mode         = "normal",
-      spinnerAsync = Nothing
+      mode         = "normal"
     }

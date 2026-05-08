@@ -6,7 +6,7 @@ import Data.List (isInfixOf)
 import Text.Printf (printf)
 import Data.Char (toLower)
 import Static
-import Types (RepoFilters(..), RepoMap, RepoStatus(..))
+import Types (RepoFilters(..), RepoMap, RepoStatus(..), JobState(..), jobLabel)
 
 getRepoName :: FilePath -> String
 getRepoName path =
@@ -31,7 +31,8 @@ getPrint maxLength dir status =
       repoName = getRepoName dir
       pullColor = if statusPulls status /= 0 then green else reset
       modifiedColor = if statusModified status > 0 then red else reset
-  in printf ("%s%-" ++ show maxLength ++ "s %-15s %s%-4s %s%-4s %s%-4s %s%-12s")
+      (jobColor, jobText) = renderJob (statusJob status)
+  in printf ("%s%-" ++ show maxLength ++ "s %-15s %s%-4s %s%-4s %s%-4s %s%-5s %s%-12s%s")
                  repoColor
                  repoName
                  (take 15 (statusBranch status))
@@ -45,8 +46,18 @@ getPrint maxLength dir status =
                  (if statusPushes status /= 0 then show (statusPushes status) else mempty)
                  modifiedColor
                  (if statusModified status > 0 then show (statusModified status) else mempty)
+                 jobColor
+                 jobText
                  reset
                  (statusTags status)
+                 reset
+
+renderJob :: JobState -> (String, String)
+renderJob JobIdle      = (reset, "")
+renderJob JobPending   = (yellow, jobLabel JobPending)
+renderJob JobRunning   = (yellow, jobLabel JobRunning)
+renderJob JobOk        = (green, jobLabel JobOk)
+renderJob (JobErr _)   = (red, "err")
 
 getRepoColor :: Int -> Int -> String
 getRepoColor pullsVal modifiedVal

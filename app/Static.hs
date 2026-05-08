@@ -10,8 +10,8 @@ cursive       = "\ESC[3m"
 clearScreen   = "\ESC[2J\ESC[H"
 
 header, mainOptions, filterOptions, actionOptions, goodbye :: String
-header        = "[RepoConductor] (v1.0.0)"
+header        = "[RepoConductor] (v1.1.0)"
 mainOptions   = "\n(F)ilter, (A)ction, (U)pdate, (T)ag, (Q)uit\n"
 filterOptions = "(A)ll, (D)irty, (N)ame, (B)ranch, (T)ag"
 actionOptions = "(F)etch, (P)ull, (S)witch, (C)ommit & Push, (L)azygit, (M)anual"
-goodbye       = "Thank you for using RepoConductor.\n" 
+goodbye       = "Thank you for using RepoConductor.\n"
