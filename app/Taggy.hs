@@ -21,6 +21,16 @@ type TagMap = Map FilePath [String]
 
 readTags :: [FilePath] -> IO TagMap
 readTags repoPaths = do
+    fullMap <- readFullTags repoPaths
+    return $ Map.fromList [(path, Map.findWithDefault [] path fullMap) | path <- repoPaths]
+
+-- | Read the entire on-disk tag map, run legacy migration against the
+-- currently-discovered repos, and ensure those repos have an entry.
+-- Entries for repos NOT in repoPaths are preserved unchanged so that
+-- running the tool from one subfolder does not erase tags belonging to
+-- repos discovered from another.
+readFullTags :: [FilePath] -> IO TagMap
+readFullTags repoPaths = do
     tags <- getTagsFilePath
     tagsExists <- doesFileExist tags
     unless tagsExists $ createTags tags
@@ -28,28 +38,28 @@ readTags repoPaths = do
     let fileMap = migrateTags repoPaths $ Map.fromList $ map (parseLine . T.unpack) $ filter (not . T.null) fileLines
     let updatedMap = foldr ensureRepoPath fileMap repoPaths
     writeTagsFile updatedMap
-    return $ Map.fromList [(path, Map.findWithDefault [] path updatedMap) | path <- repoPaths]
+    return updatedMap
 
 addTagFiltered :: String -> RepoMap -> RepoMap -> IO RepoMap
 addTagFiltered tagName filteredRepos repoMap = do
-    tags <- readTags (Map.keys repoMap)
+    fullTags <- readFullTags (Map.keys repoMap)
     let updatedTags = Map.unionWith (\oldVals newVals -> if tagName `elem` oldVals then oldVals else oldVals ++ newVals)
-                                      tags
+                                      fullTags
                                       (Map.map (const [tagName]) filteredRepos)
     writeTagsFile updatedTags
     return $ applyTagsToRepoMap updatedTags repoMap
 
 removeTagFiltered :: String -> RepoMap -> RepoMap -> IO RepoMap
 removeTagFiltered tagName filteredRepos repoMap = do
-    tags <- readTags (Map.keys repoMap)
-    let updatedTags = foldr (Map.adjust (filter (/= tagName))) tags (Map.keys filteredRepos)
+    fullTags <- readFullTags (Map.keys repoMap)
+    let updatedTags = foldr (Map.adjust (filter (/= tagName))) fullTags (Map.keys filteredRepos)
     writeTagsFile updatedTags
     return $ applyTagsToRepoMap updatedTags repoMap
 
 clearTagsFiltered :: RepoMap -> RepoMap -> IO RepoMap
 clearTagsFiltered filteredRepos repoMap = do
-    tags <- readTags (Map.keys repoMap)
-    let updatedTags = foldr (Map.adjust (const [])) tags (Map.keys filteredRepos)
+    fullTags <- readFullTags (Map.keys repoMap)
+    let updatedTags = foldr (Map.adjust (const [])) fullTags (Map.keys filteredRepos)
     writeTagsFile updatedTags
     return $ applyTagsToRepoMap updatedTags repoMap
 

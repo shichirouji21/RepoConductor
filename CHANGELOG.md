@@ -1,3 +1,6 @@
+## 1.3.1
+* Fix tag persistence so adding, removing, or clearing tags from one subfolder no longer deletes the on-disk tags of repositories discovered from a different subfolder
+
 ## 1.3.0
 * Add a Nix flake at the repository root: `nix run github:shichirouji21/RepoConductor`, `nix profile install github:shichirouji21/RepoConductor`, `nix shell github:shichirouji21/RepoConductor`
 * Install bash, zsh, and fish completion files via the flake's `postInstall`

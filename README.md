@@ -1,6 +1,6 @@
 # RepoConductor
 
-[![Version](https://img.shields.io/badge/version-1.3.0-blue)](https://github.com/shichirouji21/RepoConductor/releases/tag/v1.3.0)
+[![Version](https://img.shields.io/badge/version-1.3.1-blue)](https://github.com/shichirouji21/RepoConductor/releases/tag/v1.3.1)
 [![AUR](https://img.shields.io/badge/AUR-repoconductor--bin-1793d1)](https://aur.archlinux.org/packages/repoconductor-bin)
 [![License](https://img.shields.io/badge/license-BSD--2--Clause-green)](LICENSE)
 
@@ -9,7 +9,7 @@ RepoConductor is a terminal dashboard for managing many Git repositories at once
 Run it from a directory such as `~/repos`, and it recursively discovers Git repositories below the current working directory. From there, you can inspect status, filter repositories, run common Git actions, open `lazygit`, and organize repositories with local tags.
 
 ```text
-[RepoConductor] (v1.3.0)
+[RepoConductor] (v1.3.1)
 
 Name                    Branch          <-   ->   M    Job   Tag
 
